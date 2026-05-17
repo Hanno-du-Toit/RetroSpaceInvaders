@@ -4,19 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Single-file browser shooting game — vanilla HTML/CSS/JS, no frameworks or external dependencies.
+**RetroSpaceInvaders** — single-file browser shooting game. Vanilla HTML/CSS/JS, no frameworks. Background music loaded from `music.mp3` (local file).
 
 ## Running
 
-Open `index.html` directly in a browser. No build step, no server required.
+Open `game.html` directly in a browser. No build step, no server required.
 
 ## Architecture
 
-Everything lives in `index.html`. The script section is organized as:
+Everything lives in `game.html`. The script section is organized as:
 
 - **Constants** — speeds, cooldowns, counts
 - **State** — `state` (`menu` | `playing` | `dead` | `gameover`), `score`, `lives`, `wave`, `frame`
 - **Input** — `keys` map updated by `keydown`/`keyup`; read via `keyPressed(code)`
+- **Background music** — `<audio id="bgm">` pointing to `music.mp3`; `ytPlay()` / `ytPause()` control playback
+- **SFX** — Web Audio API synthesized sounds: `sfxShoot`, `sfxEnemyHit`, `sfxEnemyExplode`, `sfxPlayerHit`, `sfxGameOver`
 - **Stars** — parallax background array, updated every frame
 - **Player** — singleton object with `update()` / `draw()` / `reset()`; fires triple-shot player bullets
 - **Bullet** — class used for both player and enemy projectiles; `dead` flag for removal
@@ -33,3 +35,4 @@ Everything lives in `index.html`. The script section is organized as:
 |-----|--------|
 | Arrow keys / WASD | Move |
 | Space / Z | Shoot |
+| F | Toggle fullscreen |
