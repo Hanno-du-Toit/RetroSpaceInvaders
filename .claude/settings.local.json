@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"D:\\\\Projects\\\\ShootingGame\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "Bash(git config)",
+      "WebFetch(domain:github.com)",
+      "Bash(git fetch *)",
+      "Bash(start *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
+    ]
+  }
+}
