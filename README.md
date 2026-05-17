@@ -16,16 +16,6 @@
 
 ---
 
-## 📸 Screenshots
-
-> _Drop your screenshots into this section — replace the placeholders below._
-
-| Menu | Gameplay | Game Over |
-|:----:|:--------:|:---------:|
-| ![Menu screen](screenshots/menu.png) | ![Gameplay](screenshots/gameplay.png) | ![Game Over](screenshots/gameover.png) |
-
----
-
 ## ✨ Features
 
 - **Zero setup** — a single `game.html` file; open it in any modern browser and play instantly
