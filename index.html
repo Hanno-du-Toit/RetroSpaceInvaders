@@ -66,7 +66,7 @@ const ENEMY_SHOOT_COOLDOWN = 80;
 const STAR_COUNT = 80;
 
 // ─── State ────────────────────────────────────────────────────────────────────
-let state = 'menu'; // 'menu' | 'playing' | 'dead' | 'gameover'
+let state = 'menu';
 let score = 0;
 let hiScore = 0;
 let lives = 3;
@@ -77,6 +77,7 @@ let gameOverSoundPlayed = false;
 
 // ─── Audio ────────────────────────────────────────────────────────────────────
 let audioCtx = null;
+let _musicBus = null;
 
 function getAC() {
   if (!audioCtx) audioCtx = new AudioContext();
@@ -84,112 +85,310 @@ function getAC() {
   return audioCtx;
 }
 
+// Warm lo-fi master bus for all music: gain → lowpass → destination
+function getMusicBus() {
+  if (!_musicBus) {
+    const ac = getAC();
+    const gain = ac.createGain();
+    gain.gain.value = 0;
+    const filt = ac.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 7000; // cut high end for warmth
+    filt.Q.value = 0.5;
+    gain.connect(filt);
+    filt.connect(ac.destination);
+    _musicBus = gain;
+  }
+  return _musicBus;
+}
+
+// ── SFX (all soft) ────────────────────────────────────────────────────────────
 function sfxShoot() {
-  const ac = getAC();
-  const t = ac.currentTime;
-  const osc = ac.createOscillator();
-  const gain = ac.createGain();
-  osc.connect(gain);
-  gain.connect(ac.destination);
+  const ac = getAC(), t = ac.currentTime;
+  const osc = ac.createOscillator(), gain = ac.createGain();
+  osc.connect(gain); gain.connect(ac.destination);
   osc.type = 'square';
   osc.frequency.setValueAtTime(900, t);
   osc.frequency.exponentialRampToValueAtTime(400, t + 0.07);
-  gain.gain.setValueAtTime(0.12, t);
+  gain.gain.setValueAtTime(0.06, t);
   gain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
-  osc.start(t);
-  osc.stop(t + 0.07);
+  osc.start(t); osc.stop(t + 0.07);
 }
 
 function sfxEnemyHit() {
-  const ac = getAC();
-  const t = ac.currentTime;
-  const dur = 0.06;
+  const ac = getAC(), t = ac.currentTime, dur = 0.06;
   const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
   const d = buf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  const src = ac.createBufferSource();
-  src.buffer = buf;
-  const filter = ac.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.value = 1200;
-  filter.Q.value = 0.5;
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const filt = ac.createBiquadFilter(); filt.type = 'bandpass'; filt.frequency.value = 1200;
   const gain = ac.createGain();
-  gain.gain.setValueAtTime(0.25, t);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  src.connect(filter);
-  filter.connect(gain);
-  gain.connect(ac.destination);
+  gain.gain.setValueAtTime(0.12, t); gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(filt); filt.connect(gain); gain.connect(ac.destination);
   src.start(t);
 }
 
 function sfxEnemyExplode() {
-  const ac = getAC();
-  const t = ac.currentTime;
-  const dur = 0.35;
+  const ac = getAC(), t = ac.currentTime, dur = 0.35;
   const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
   const d = buf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  const src = ac.createBufferSource();
-  src.buffer = buf;
-  const filter = ac.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.setValueAtTime(1000, t);
-  filter.frequency.exponentialRampToValueAtTime(80, t + dur);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const filt = ac.createBiquadFilter(); filt.type = 'lowpass';
+  filt.frequency.setValueAtTime(1000, t); filt.frequency.exponentialRampToValueAtTime(80, t + dur);
   const gain = ac.createGain();
-  gain.gain.setValueAtTime(0.5, t);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  src.connect(filter);
-  filter.connect(gain);
-  gain.connect(ac.destination);
+  gain.gain.setValueAtTime(0.28, t); gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(filt); filt.connect(gain); gain.connect(ac.destination);
   src.start(t);
 }
 
 function sfxPlayerHit() {
-  const ac = getAC();
-  const t = ac.currentTime;
-  // Sawtooth drop
-  const osc = ac.createOscillator();
-  const og = ac.createGain();
-  osc.connect(og);
-  og.connect(ac.destination);
+  const ac = getAC(), t = ac.currentTime;
+  const osc = ac.createOscillator(), og = ac.createGain();
+  osc.connect(og); og.connect(ac.destination);
   osc.type = 'sawtooth';
-  osc.frequency.setValueAtTime(400, t);
-  osc.frequency.exponentialRampToValueAtTime(60, t + 0.45);
-  og.gain.setValueAtTime(0.35, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
-  osc.start(t);
-  osc.stop(t + 0.45);
-  // Noise burst
+  osc.frequency.setValueAtTime(400, t); osc.frequency.exponentialRampToValueAtTime(60, t + 0.45);
+  og.gain.setValueAtTime(0.18, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+  osc.start(t); osc.stop(t + 0.45);
   const dur = 0.25;
   const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
   const d = buf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  const src = ac.createBufferSource();
-  src.buffer = buf;
+  const src = ac.createBufferSource(); src.buffer = buf;
   const ng = ac.createGain();
-  ng.gain.setValueAtTime(0.4, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  src.connect(ng);
-  ng.connect(ac.destination);
-  src.start(t);
+  ng.gain.setValueAtTime(0.2, t); ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(ng); ng.connect(ac.destination); src.start(t);
 }
 
 function sfxGameOver() {
-  const ac = getAC();
-  const t = ac.currentTime;
+  const ac = getAC(), t = ac.currentTime;
   [440, 330, 220, 110].forEach((freq, i) => {
-    const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    osc.connect(gain);
-    gain.connect(ac.destination);
+    const osc = ac.createOscillator(), gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
     osc.type = 'sawtooth';
     const st = t + i * 0.22;
     osc.frequency.setValueAtTime(freq, st);
-    gain.gain.setValueAtTime(0.3, st);
-    gain.gain.exponentialRampToValueAtTime(0.001, st + 0.2);
-    osc.start(st);
-    osc.stop(st + 0.2);
+    gain.gain.setValueAtTime(0.16, st); gain.gain.exponentialRampToValueAtTime(0.001, st + 0.2);
+    osc.start(st); osc.stop(st + 0.2);
   });
+}
+
+// ── Lo-fi background music ─────────────────────────────────────────────────────
+// Key of F major, 90 BPM, 4-bar loop (64 sixteenth-note steps)
+// Chord progression: F → Dm → Bb → C (I vi IV V)
+
+const NOTE = {
+  C2:65.41, D2:73.42, E2:82.41, F2:87.31, G2:98.00, A2:110.00, Bb2:116.54,
+  C3:130.81, D3:146.83, E3:164.81, F3:174.61, G3:196.00, A3:220.00, Bb3:233.08, B3:246.94,
+  C4:261.63, D4:293.66, E4:329.63, F4:349.23, G4:392.00, A4:440.00, Bb4:466.16, B4:493.88,
+  C5:523.25, D5:587.33, E5:659.25, F5:698.46
+};
+const {C2,D2,E2,F2,G2,A2,Bb2,C3,D3,E3,F3,G3,A3,Bb3,C4,D4,E4,F4,G4,A4,Bb4,C5,D5,E5} = NOTE;
+const _ = 0;
+
+const MUSIC_BPM   = 90;
+const STEP_DUR    = 60 / MUSIC_BPM / 4; // one 16th note
+const LOOP_STEPS  = 64;                  // 4 bars
+
+// Drum patterns (1 = hit, 0 = rest)
+const KICK  = [1,0,0,0,0,0,1,0, 1,0,0,0,0,0,0,0, 1,0,0,0,0,0,1,0, 1,0,0,0,0,0,0,0,
+               1,0,0,0,0,0,1,0, 1,0,0,0,0,0,0,0, 1,0,0,0,0,0,1,0, 1,0,0,0,0,1,0,0];
+const SNARE = [0,0,0,0,1,0,0,0, 0,0,0,0,1,0,0,0, 0,0,0,0,1,0,0,0, 0,0,0,0,1,0,0,0,
+               0,0,0,0,1,0,0,0, 0,0,0,0,1,0,0,0, 0,0,0,0,1,0,0,0, 0,0,0,0,1,0,0,0];
+const HIHAT = [0,0,1,0,0,0,1,0, 0,0,1,0,0,0,1,0, 0,0,1,0,0,0,1,0, 0,0,1,0,0,0,1,0,
+               0,0,1,0,0,0,1,0, 0,0,1,0,0,0,1,0, 0,0,1,0,0,0,1,0, 0,0,1,0,0,0,1,0];
+
+// Funky bass line (triangle wave, lowpass filtered)
+const BASS = [
+  F2,_,_,F2, A2,_,C3,_, F2,_,_,F2, E3,_,C3,_,   // Bar 1: F
+  D2,_,_,D2, F2,_,A2,_, D2,_,_,D2, C3,_,A2,_,   // Bar 2: Dm
+  Bb2,_,_,Bb2, D3,_,F3,_, Bb2,_,_,Bb2, A3,_,F3,_, // Bar 3: Bb
+  C3,_,_,C3, E3,_,G3,_, C3,_,_,C3, G3,_,E3,_    // Bar 4: C
+];
+
+// Lead melody (sawtooth, filtered; pickup on beat 4 bar 1, hook bars 2-4)
+const MELODY = [
+  _,_,_,_, _,_,_,_, _,_,_,_, _,_,C5,_,           // Bar 1: rest + pickup
+  E5,_,D5,_, C5,_,A4,_, G4,_,_,_, _,_,_,_,        // Bar 2: main hook
+  Bb4,_,_,_, D5,_,C5,_, Bb4,_,A4,_, G4,_,_,_,     // Bar 3: continuation
+  A4,_,G4,_, F4,_,_,_, E4,_,F4,_, G4,_,_,_        // Bar 4: answer phrase
+];
+
+// Chord pads (one per bar, played at step 0/16/32/48)
+const CHORDS = [
+  [F3, A3, C4],      // F major
+  [D3, F3, A3],      // D minor
+  [Bb2, D3, F3],     // Bb major
+  [C3, E3, G3]       // C major
+];
+
+// ── Music instrument synthesizers ─────────────────────────────────────────────
+function mKick(t) {
+  const ac = getAC();
+  const osc = ac.createOscillator(), gain = ac.createGain();
+  osc.connect(gain); gain.connect(getMusicBus());
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(115, t);
+  osc.frequency.exponentialRampToValueAtTime(38, t + 0.09);
+  gain.gain.setValueAtTime(1.0, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+  osc.start(t); osc.stop(t + 0.28);
+}
+
+function mSnare(t) {
+  const ac = getAC();
+  // Body tone
+  const osc = ac.createOscillator(), og = ac.createGain();
+  osc.connect(og); og.connect(getMusicBus());
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(260, t); osc.frequency.exponentialRampToValueAtTime(180, t + 0.1);
+  og.gain.setValueAtTime(0.35, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+  osc.start(t); osc.stop(t + 0.14);
+  // Noise rattle
+  const dur = 0.2;
+  const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const filt = ac.createBiquadFilter(); filt.type = 'bandpass'; filt.frequency.value = 3800; filt.Q.value = 0.6;
+  const ng = ac.createGain();
+  ng.gain.setValueAtTime(0.55, t); ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(filt); filt.connect(ng); ng.connect(getMusicBus());
+  src.start(t);
+}
+
+function mHiHat(t) {
+  const ac = getAC(), dur = 0.055;
+  const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const filt = ac.createBiquadFilter(); filt.type = 'highpass'; filt.frequency.value = 9000;
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(filt); filt.connect(gain); gain.connect(getMusicBus());
+  src.start(t);
+}
+
+function mBass(freq, t) {
+  const ac = getAC();
+  const osc = ac.createOscillator();
+  const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 700;
+  const gain = ac.createGain();
+  osc.connect(filt); filt.connect(gain); gain.connect(getMusicBus());
+  osc.type = 'triangle'; osc.frequency.value = freq;
+  const rel = STEP_DUR * 2.8;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(0.7, t + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + rel);
+  osc.start(t); osc.stop(t + rel + 0.01);
+}
+
+function mMelody(freq, t) {
+  const ac = getAC();
+  const osc = ac.createOscillator();
+  // Vibrato for tape-flutter feel
+  const lfo = ac.createOscillator(), lfoG = ac.createGain();
+  lfo.frequency.value = 5; lfoG.gain.value = 7;
+  lfo.connect(lfoG); lfoG.connect(osc.detune);
+  // Warm filter
+  const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 2600; filt.Q.value = 1.8;
+  const gain = ac.createGain();
+  osc.connect(filt); filt.connect(gain); gain.connect(getMusicBus());
+  osc.type = 'sawtooth'; osc.frequency.value = freq;
+  const dur = STEP_DUR * 3.4;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(0.28, t + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.12, t + STEP_DUR * 1.8);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  lfo.start(t); lfo.stop(t + dur);
+  osc.start(t); osc.stop(t + dur + 0.01);
+}
+
+function mPad(freqs, t, dur) {
+  const ac = getAC();
+  for (const freq of freqs) {
+    const osc = ac.createOscillator();
+    const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 1600; filt.Q.value = 0.8;
+    const gain = ac.createGain();
+    osc.connect(filt); filt.connect(gain); gain.connect(getMusicBus());
+    osc.type = 'sine'; osc.frequency.value = freq;
+    osc.detune.value = (Math.random() - 0.5) * 14; // slight detune = warmth
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.09, t + 0.35);
+    gain.gain.setValueAtTime(0.09, t + dur - 0.35);
+    gain.gain.linearRampToValueAtTime(0, t + dur);
+    osc.start(t); osc.stop(t + dur + 0.01);
+  }
+}
+
+// ── Music scheduler ───────────────────────────────────────────────────────────
+let musicStep = 0;
+let nextStepTime = 0;
+let musicTimerId = null;
+let musicRunning = false;
+let vinylSrc = null;
+
+function scheduleStep(step, t) {
+  if (KICK[step])  mKick(t);
+  if (SNARE[step]) mSnare(t);
+  if (HIHAT[step]) mHiHat(t);
+  if (BASS[step])  mBass(BASS[step], t);
+  if (MELODY[step]) mMelody(MELODY[step], t);
+  // Pad fires once per bar (every 16 steps)
+  if (step % 16 === 0) mPad(CHORDS[step / 16], t, STEP_DUR * 15.6);
+}
+
+function runMusicScheduler() {
+  if (!musicRunning) return;
+  const ac = getAC();
+  while (nextStepTime < ac.currentTime + 0.15) {
+    scheduleStep(musicStep % LOOP_STEPS, nextStepTime);
+    nextStepTime += STEP_DUR;
+    musicStep++;
+  }
+  musicTimerId = setTimeout(runMusicScheduler, 30);
+}
+
+function startMusic() {
+  if (musicRunning) return;
+  const ac = getAC();
+  musicRunning = true;
+  musicStep = 0;
+  nextStepTime = ac.currentTime + 0.08;
+  // Fade in
+  const bus = getMusicBus();
+  bus.gain.cancelScheduledValues(ac.currentTime);
+  bus.gain.setValueAtTime(0, ac.currentTime);
+  bus.gain.linearRampToValueAtTime(0.42, ac.currentTime + 2.0);
+  // Vinyl crackle loop
+  const sr = ac.sampleRate, sec = 6;
+  const buf = ac.createBuffer(1, sr * sec, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    if (Math.random() < 0.0004) {
+      d[i] = (Math.random() - 0.5) * 1.8;
+      for (let j = 1; j < 6 && i + j < d.length; j++) d[i + j] = d[i] * Math.pow(0.45, j);
+    }
+  }
+  vinylSrc = ac.createBufferSource();
+  vinylSrc.buffer = buf; vinylSrc.loop = true;
+  const vg = ac.createGain(); vg.gain.value = 0.028;
+  vinylSrc.connect(vg); vg.connect(getMusicBus());
+  vinylSrc.start();
+  runMusicScheduler();
+}
+
+function stopMusic() {
+  musicRunning = false;
+  if (musicTimerId) { clearTimeout(musicTimerId); musicTimerId = null; }
+  if (vinylSrc) { try { vinylSrc.stop(); } catch(e) {} vinylSrc = null; }
+  if (audioCtx) {
+    const bus = getMusicBus();
+    bus.gain.cancelScheduledValues(audioCtx.currentTime);
+    bus.gain.setValueAtTime(bus.gain.value, audioCtx.currentTime);
+    bus.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.8);
+  }
 }
 
 // ─── Fullscreen ───────────────────────────────────────────────────────────────
@@ -202,7 +401,7 @@ function toggleFullscreen() {
 }
 
 document.getElementById('fsBtn').addEventListener('click', () => {
-  getAC(); // unlock audio on this gesture too
+  getAC();
   toggleFullscreen();
 });
 
@@ -285,42 +484,28 @@ const player = {
     ctx.fillRect(x - 4, y + 14, 8, 6);
     ctx.fillStyle = '#4af';
     ctx.beginPath();
-    ctx.moveTo(x, y - 18);
-    ctx.lineTo(x + 14, y + 14);
-    ctx.lineTo(x + 6,  y + 10);
-    ctx.lineTo(x,      y + 18);
-    ctx.lineTo(x - 6,  y + 10);
-    ctx.lineTo(x - 14, y + 14);
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(x, y - 18); ctx.lineTo(x + 14, y + 14); ctx.lineTo(x + 6, y + 10);
+    ctx.lineTo(x, y + 18); ctx.lineTo(x - 6, y + 10); ctx.lineTo(x - 14, y + 14);
+    ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#9ef';
-    ctx.beginPath();
-    ctx.ellipse(x, y - 4, 5, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, y - 4, 5, 8, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#2af';
-    ctx.fillRect(x - 14, y + 8, 8, 4);
-    ctx.fillRect(x + 6,  y + 8, 8, 4);
+    ctx.fillRect(x - 14, y + 8, 8, 4); ctx.fillRect(x + 6, y + 8, 8, 4);
   }
 };
 
 // ─── Bullets ─────────────────────────────────────────────────────────────────
 class Bullet {
   constructor(x, y, vx, vy, color, w, h) {
-    this.x = x; this.y = y;
-    this.vx = vx; this.vy = vy;
-    this.color = color;
-    this.w = w; this.h = h;
-    this.dead = false;
+    this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+    this.color = color; this.w = w; this.h = h; this.dead = false;
   }
   update() {
-    this.x += this.vx;
-    this.y += this.vy;
+    this.x += this.vx; this.y += this.vy;
     if (this.x < -10 || this.x > W + 10 || this.y < -20 || this.y > H + 20) this.dead = true;
   }
   draw() {
-    ctx.fillStyle = this.color;
-    ctx.shadowColor = this.color;
-    ctx.shadowBlur = 6;
+    ctx.fillStyle = this.color; ctx.shadowColor = this.color; ctx.shadowBlur = 6;
     ctx.fillRect(this.x - this.w / 2, this.y - this.h / 2, this.w, this.h);
     ctx.shadowBlur = 0;
   }
@@ -334,27 +519,16 @@ const particles = [];
 
 function spawnExplosion(x, y, color, count) {
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 0.5 + Math.random() * 3;
-    particles.push({
-      x, y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      life: 30 + Math.random() * 30,
-      maxLife: 60,
-      color,
-      size: 1 + Math.random() * 3
-    });
+    const angle = Math.random() * Math.PI * 2, speed = 0.5 + Math.random() * 3;
+    particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      life: 30 + Math.random() * 30, maxLife: 60, color, size: 1 + Math.random() * 3 });
   }
 }
 
 function updateParticles() {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    p.x += p.vx;
-    p.y += p.vy;
-    p.vy += 0.04;
-    p.life--;
+    p.x += p.vx; p.y += p.vy; p.vy += 0.04; p.life--;
     if (p.life <= 0) particles.splice(i, 1);
   }
 }
@@ -371,69 +545,31 @@ function drawParticles() {
 // ─── Enemies ─────────────────────────────────────────────────────────────────
 class Enemy {
   constructor(x, y, type) {
-    this.x = x; this.y = y;
-    this.type = type;
-    this.dead = false;
+    this.x = x; this.y = y; this.type = type; this.dead = false;
     this.shootTimer = Math.floor(Math.random() * ENEMY_SHOOT_COOLDOWN);
     this.t = 0;
-
     switch (type) {
-      case 'grunt':
-        this.hp = 1; this.maxHp = 1;
-        this.w = 28; this.h = 24;
-        this.points = 100;
-        this.color = '#f44';
-        this.canShoot = false;
-        break;
-      case 'shooter':
-        this.hp = 2; this.maxHp = 2;
-        this.w = 30; this.h = 28;
-        this.points = 200;
-        this.color = '#f90';
-        this.canShoot = true;
-        break;
-      case 'tank':
-        this.hp = 5; this.maxHp = 5;
-        this.w = 38; this.h = 34;
-        this.points = 500;
-        this.color = '#c4f';
-        this.canShoot = true;
-        break;
+      case 'grunt':   this.hp = 1; this.maxHp = 1; this.w = 28; this.h = 24; this.points = 100; this.color = '#f44'; this.canShoot = false; break;
+      case 'shooter': this.hp = 2; this.maxHp = 2; this.w = 30; this.h = 28; this.points = 200; this.color = '#f90'; this.canShoot = true; break;
+      case 'tank':    this.hp = 5; this.maxHp = 5; this.w = 38; this.h = 34; this.points = 500; this.color = '#c4f'; this.canShoot = true; break;
     }
   }
 
   update() {
     this.t++;
     const speed = 1 + wave * 0.15;
-
-    if (this.type === 'grunt') {
-      this.y += speed;
-      this.x += Math.sin(this.t * 0.05) * 1.5;
-    } else if (this.type === 'shooter') {
-      this.y += speed * 0.6;
-      this.x += Math.sin(this.t * 0.04 + this.x) * 2;
-    } else if (this.type === 'tank') {
-      this.y += speed * 0.4;
-      this.x += Math.cos(this.t * 0.03) * 1;
-    }
-
+    if (this.type === 'grunt')   { this.y += speed; this.x += Math.sin(this.t * 0.05) * 1.5; }
+    else if (this.type === 'shooter') { this.y += speed * 0.6; this.x += Math.sin(this.t * 0.04 + this.x) * 2; }
+    else if (this.type === 'tank')    { this.y += speed * 0.4; this.x += Math.cos(this.t * 0.03) * 1; }
     this.x = Math.max(this.w / 2, Math.min(W - this.w / 2, this.x));
     if (this.y > H + 50) this.dead = true;
-
     if (this.canShoot) {
       this.shootTimer--;
       if (this.shootTimer <= 0) {
         this.shootTimer = Math.max(30, ENEMY_SHOOT_COOLDOWN - wave * 3);
-        const dx = player.x - this.x;
-        const dy = player.y - this.y;
-        const dist = Math.hypot(dx, dy);
-        const spd = ENEMY_BULLET_SPEED + wave * 0.1;
-        enemyBullets.push(new Bullet(
-          this.x, this.y + this.h / 2,
-          (dx / dist) * spd,
-          (dy / dist) * spd,
-          '#f44', 6, 6
-        ));
+        const dx = player.x - this.x, dy = player.y - this.y;
+        const dist = Math.hypot(dx, dy), spd = ENEMY_BULLET_SPEED + wave * 0.1;
+        enemyBullets.push(new Bullet(this.x, this.y + this.h / 2, (dx/dist)*spd, (dy/dist)*spd, '#f44', 6, 6));
       }
     }
   }
@@ -442,62 +578,34 @@ class Enemy {
     this.hp--;
     spawnExplosion(this.x, this.y, '#ff8', 5);
     if (this.hp <= 0) {
-      this.dead = true;
-      score += this.points;
-      spawnExplosion(this.x, this.y, this.color, 20);
-      spawnExplosion(this.x, this.y, '#fff', 8);
+      this.dead = true; score += this.points;
+      spawnExplosion(this.x, this.y, this.color, 20); spawnExplosion(this.x, this.y, '#fff', 8);
       sfxEnemyExplode();
-    } else {
-      sfxEnemyHit();
-    }
+    } else { sfxEnemyHit(); }
   }
 
   draw() {
     const x = this.x, y = this.y;
     if (this.type === 'grunt') {
       ctx.fillStyle = this.color;
-      ctx.beginPath();
-      ctx.moveTo(x, y + 12);
-      ctx.lineTo(x + 14, y - 10);
-      ctx.lineTo(x + 8, y - 6);
-      ctx.lineTo(x, y - 12);
-      ctx.lineTo(x - 8, y - 6);
-      ctx.lineTo(x - 14, y - 10);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#faa';
-      ctx.beginPath();
-      ctx.ellipse(x, y, 4, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x, y+12); ctx.lineTo(x+14,y-10); ctx.lineTo(x+8,y-6);
+      ctx.lineTo(x,y-12); ctx.lineTo(x-8,y-6); ctx.lineTo(x-14,y-10); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#faa'; ctx.beginPath(); ctx.ellipse(x, y, 4, 6, 0, 0, Math.PI*2); ctx.fill();
     } else if (this.type === 'shooter') {
       ctx.fillStyle = this.color;
-      ctx.beginPath();
-      ctx.moveTo(x, y + 14);
-      ctx.lineTo(x + 15, y - 2);
-      ctx.lineTo(x + 10, y - 14);
-      ctx.lineTo(x - 10, y - 14);
-      ctx.lineTo(x - 15, y - 2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#ffa';
-      ctx.fillRect(x - 3, y - 8, 6, 10);
+      ctx.beginPath(); ctx.moveTo(x,y+14); ctx.lineTo(x+15,y-2); ctx.lineTo(x+10,y-14);
+      ctx.lineTo(x-10,y-14); ctx.lineTo(x-15,y-2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffa'; ctx.fillRect(x-3, y-8, 6, 10);
       if (this.hp < this.maxHp) {
-        ctx.fillStyle = '#333';
-        ctx.fillRect(x - 14, y - 20, 28, 4);
-        ctx.fillStyle = '#0f0';
-        ctx.fillRect(x - 14, y - 20, 28 * (this.hp / this.maxHp), 4);
+        ctx.fillStyle='#333'; ctx.fillRect(x-14,y-20,28,4);
+        ctx.fillStyle='#0f0'; ctx.fillRect(x-14,y-20,28*(this.hp/this.maxHp),4);
       }
     } else if (this.type === 'tank') {
-      ctx.fillStyle = this.color;
-      ctx.fillRect(x - 19, y - 14, 38, 28);
-      ctx.fillStyle = '#daf';
-      ctx.fillRect(x - 10, y - 8, 20, 16);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(x - 3, y - 18, 6, 10);
-      ctx.fillStyle = '#333';
-      ctx.fillRect(x - 18, y - 24, 36, 4);
-      ctx.fillStyle = '#0f0';
-      ctx.fillRect(x - 18, y - 24, 36 * (this.hp / this.maxHp), 4);
+      ctx.fillStyle = this.color; ctx.fillRect(x-19,y-14,38,28);
+      ctx.fillStyle = '#daf'; ctx.fillRect(x-10,y-8,20,16);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x-3,y-18,6,10);
+      ctx.fillStyle='#333'; ctx.fillRect(x-18,y-24,36,4);
+      ctx.fillStyle='#0f0'; ctx.fillRect(x-18,y-24,36*(this.hp/this.maxHp),4);
     }
   }
 }
@@ -516,36 +624,23 @@ function buildWave(w) {
       let type = 'grunt';
       if (w >= 2 && row === 0) type = 'shooter';
       if (w >= 3 && row === 0 && col === Math.floor(cols / 2)) type = 'tank';
-      queue.push({
-        x: 60 + col * (W - 120) / (cols - 1),
-        y: -40 - row * 60,
-        type,
-        delay: row * 20 + col * 5
-      });
+      queue.push({ x: 60 + col * (W - 120) / (cols - 1), y: -40 - row * 60, type, delay: row * 20 + col * 5 });
     }
   }
   return queue;
 }
 
 function spawnWaveEnemies() {
-  if (spawnQueue.length === 0 && enemies.length === 0) {
-    wave++;
-    spawnQueue = buildWave(wave);
-  }
+  if (spawnQueue.length === 0 && enemies.length === 0) { wave++; spawnQueue = buildWave(wave); }
   for (let i = spawnQueue.length - 1; i >= 0; i--) {
-    const e = spawnQueue[i];
-    e.delay--;
-    if (e.delay <= 0) {
-      enemies.push(new Enemy(e.x, e.y, e.type));
-      spawnQueue.splice(i, 1);
-    }
+    const e = spawnQueue[i]; e.delay--;
+    if (e.delay <= 0) { enemies.push(new Enemy(e.x, e.y, e.type)); spawnQueue.splice(i, 1); }
   }
 }
 
 // ─── Collision ────────────────────────────────────────────────────────────────
 function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
-  return Math.abs(ax - bx) < (aw + bw) / 2 &&
-         Math.abs(ay - by) < (ah + bh) / 2;
+  return Math.abs(ax - bx) < (aw + bw) / 2 && Math.abs(ay - by) < (ah + bh) / 2;
 }
 
 function checkCollisions() {
@@ -553,31 +648,18 @@ function checkCollisions() {
     if (b.dead) continue;
     for (const e of enemies) {
       if (e.dead) continue;
-      if (rectsOverlap(b.x, b.y, b.w, b.h, e.x, e.y, e.w, e.h)) {
-        b.dead = true;
-        e.hit();
-        break;
-      }
+      if (rectsOverlap(b.x, b.y, b.w, b.h, e.x, e.y, e.w, e.h)) { b.dead = true; e.hit(); break; }
     }
   }
-
   if (player.alive && player.invTimer === 0) {
     for (const b of enemyBullets) {
       if (b.dead) continue;
-      if (rectsOverlap(b.x, b.y, b.w, b.h, player.x, player.y, player.w - 8, player.h - 8)) {
-        b.dead = true;
-        hitPlayer();
-      }
+      if (rectsOverlap(b.x, b.y, b.w, b.h, player.x, player.y, player.w - 8, player.h - 8)) { b.dead = true; hitPlayer(); }
     }
-  }
-
-  if (player.alive && player.invTimer === 0) {
     for (const e of enemies) {
       if (e.dead) continue;
       if (rectsOverlap(player.x, player.y, player.w - 4, player.h - 4, e.x, e.y, e.w - 4, e.h - 4)) {
-        e.dead = true;
-        spawnExplosion(e.x, e.y, e.color, 20);
-        hitPlayer();
+        e.dead = true; spawnExplosion(e.x, e.y, e.color, 20); hitPlayer();
       }
     }
   }
@@ -585,110 +667,59 @@ function checkCollisions() {
 
 function hitPlayer() {
   lives--;
-  spawnExplosion(player.x, player.y, '#4af', 25);
-  spawnExplosion(player.x, player.y, '#fff', 10);
+  spawnExplosion(player.x, player.y, '#4af', 25); spawnExplosion(player.x, player.y, '#fff', 10);
   sfxPlayerHit();
   if (lives <= 0) {
-    player.alive = false;
-    state = 'dead';
-    deathTimer = 150;
-    gameOverSoundPlayed = false;
-  } else {
-    player.invTimer = 120;
-  }
+    player.alive = false; state = 'dead'; deathTimer = 150;
+    gameOverSoundPlayed = false; stopMusic();
+  } else { player.invTimer = 120; }
 }
 
 // ─── HUD ──────────────────────────────────────────────────────────────────────
 function drawHUD() {
-  ctx.fillStyle = '#8cf';
-  ctx.font = 'bold 14px Courier New';
-  ctx.textAlign = 'left';
-  ctx.fillText(`SCORE  ${score}`, 10, 22);
-  ctx.textAlign = 'center';
-  ctx.fillText(`WAVE ${wave}`, W / 2, 22);
-  ctx.textAlign = 'right';
-  ctx.fillText(`HI  ${hiScore}`, W - 10, 22);
-
-  for (let i = 0; i < lives; i++) {
-    drawMiniShip(18 + i * 24, H - 16);
-  }
+  ctx.fillStyle = '#8cf'; ctx.font = 'bold 14px Courier New';
+  ctx.textAlign = 'left';   ctx.fillText(`SCORE  ${score}`, 10, 22);
+  ctx.textAlign = 'center'; ctx.fillText(`WAVE ${wave}`, W / 2, 22);
+  ctx.textAlign = 'right';  ctx.fillText(`HI  ${hiScore}`, W - 10, 22);
+  for (let i = 0; i < lives; i++) drawMiniShip(18 + i * 24, H - 16);
 }
 
 function drawMiniShip(x, y) {
   ctx.fillStyle = '#4af';
-  ctx.beginPath();
-  ctx.moveTo(x, y - 8);
-  ctx.lineTo(x + 6, y + 4);
-  ctx.lineTo(x, y + 2);
-  ctx.lineTo(x - 6, y + 4);
-  ctx.closePath();
-  ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x,y-8); ctx.lineTo(x+6,y+4); ctx.lineTo(x,y+2); ctx.lineTo(x-6,y+4); ctx.closePath(); ctx.fill();
 }
 
 // ─── Screens ─────────────────────────────────────────────────────────────────
 function drawMenu() {
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = '#4af';
-  ctx.font = 'bold 46px Courier New';
-  ctx.textAlign = 'center';
-  ctx.fillText('SHOOTING', W / 2, H / 2 - 80);
-  ctx.fillText('GAME', W / 2, H / 2 - 30);
-
-  ctx.fillStyle = '#8cf';
-  ctx.font = '15px Courier New';
-  ctx.fillText('MOVE: ARROW KEYS / WASD', W / 2, H / 2 + 30);
-  ctx.fillText('SHOOT: SPACE / Z', W / 2, H / 2 + 54);
-  ctx.fillText('FULLSCREEN: F', W / 2, H / 2 + 78);
-
-  if (hiScore > 0) {
-    ctx.fillStyle = '#ff0';
-    ctx.font = '13px Courier New';
-    ctx.fillText(`HI-SCORE: ${hiScore}`, W / 2, H / 2 + 104);
-  }
-
-  ctx.fillStyle = Math.floor(frame / 30) % 2 === 0 ? '#fff' : '#4af';
-  ctx.font = 'bold 16px Courier New';
-  ctx.fillText('PRESS SPACE TO START', W / 2, H / 2 + 138);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#4af'; ctx.font = 'bold 46px Courier New'; ctx.textAlign = 'center';
+  ctx.fillText('SHOOTING', W/2, H/2 - 80); ctx.fillText('GAME', W/2, H/2 - 30);
+  ctx.fillStyle = '#8cf'; ctx.font = '15px Courier New';
+  ctx.fillText('MOVE: ARROW KEYS / WASD', W/2, H/2 + 30);
+  ctx.fillText('SHOOT: SPACE / Z', W/2, H/2 + 54);
+  ctx.fillText('FULLSCREEN: F', W/2, H/2 + 78);
+  if (hiScore > 0) { ctx.fillStyle='#ff0'; ctx.font='13px Courier New'; ctx.fillText(`HI-SCORE: ${hiScore}`, W/2, H/2+104); }
+  ctx.fillStyle = Math.floor(frame/30)%2===0 ? '#fff' : '#4af';
+  ctx.font = 'bold 16px Courier New'; ctx.fillText('PRESS SPACE TO START', W/2, H/2+138);
 }
 
 function drawGameOver() {
-  ctx.fillStyle = 'rgba(0,0,0,0.65)';
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = '#f44';
-  ctx.font = 'bold 44px Courier New';
-  ctx.textAlign = 'center';
-  ctx.fillText('GAME', W / 2, H / 2 - 50);
-  ctx.fillText('OVER', W / 2, H / 2);
-
-  ctx.fillStyle = '#fff';
-  ctx.font = '16px Courier New';
-  ctx.fillText(`SCORE: ${score}`, W / 2, H / 2 + 44);
-  if (score >= hiScore && score > 0) {
-    ctx.fillStyle = '#ff0';
-    ctx.fillText('NEW HI-SCORE!', W / 2, H / 2 + 68);
-  }
-
-  ctx.fillStyle = Math.floor(frame / 30) % 2 === 0 ? '#fff' : '#f44';
-  ctx.font = 'bold 14px Courier New';
-  ctx.fillText('PRESS SPACE TO RETRY', W / 2, H / 2 + 110);
+  ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#f44'; ctx.font = 'bold 44px Courier New'; ctx.textAlign = 'center';
+  ctx.fillText('GAME', W/2, H/2 - 50); ctx.fillText('OVER', W/2, H/2);
+  ctx.fillStyle = '#fff'; ctx.font = '16px Courier New'; ctx.fillText(`SCORE: ${score}`, W/2, H/2 + 44);
+  if (score >= hiScore && score > 0) { ctx.fillStyle='#ff0'; ctx.fillText('NEW HI-SCORE!', W/2, H/2 + 68); }
+  ctx.fillStyle = Math.floor(frame/30)%2===0 ? '#fff' : '#f44';
+  ctx.font = 'bold 14px Courier New'; ctx.fillText('PRESS SPACE TO RETRY', W/2, H/2 + 110);
 }
 
 // ─── Game init / reset ────────────────────────────────────────────────────────
 function startGame() {
-  score = 0;
-  lives = 3;
-  wave = 0;
-  enemies = [];
-  playerBullets = [];
-  enemyBullets = [];
-  particles.length = 0;
-  spawnQueue = buildWave(1);
-  wave = 1;
-  player.reset();
-  state = 'playing';
+  score = 0; lives = 3; wave = 1;
+  enemies = []; playerBullets = []; enemyBullets = [];
+  particles.length = 0; spawnQueue = buildWave(1);
+  player.reset(); state = 'playing';
+  startMusic();
 }
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
@@ -702,8 +733,7 @@ function update() {
   }
 
   if (state === 'dead') {
-    deathTimer--;
-    updateParticles();
+    deathTimer--; updateParticles();
     if (!gameOverSoundPlayed) { sfxGameOver(); gameOverSoundPlayed = true; }
     if (deathTimer <= 0) state = 'gameover';
     return;
@@ -715,57 +745,36 @@ function update() {
     return;
   }
 
-  // state === 'playing'
   player.update();
   spawnWaveEnemies();
-
   for (const b of playerBullets) b.update();
   for (const b of enemyBullets)  b.update();
   for (const e of enemies)       e.update();
-
   playerBullets = playerBullets.filter(b => !b.dead);
   enemyBullets  = enemyBullets.filter(b => !b.dead);
   enemies       = enemies.filter(e => !e.dead);
-
   checkCollisions();
   updateParticles();
 }
 
 function draw() {
-  ctx.fillStyle = '#060614';
-  ctx.fillRect(0, 0, W, H);
-
+  ctx.fillStyle = '#060614'; ctx.fillRect(0, 0, W, H);
   drawStars();
-
-  if (state === 'menu') {
-    player.invTimer = 0;
-    player.alive = true;
-    player.draw();
-    drawMenu();
-    return;
-  }
-
+  if (state === 'menu') { player.invTimer=0; player.alive=true; player.draw(); drawMenu(); return; }
   for (const b of enemyBullets)  b.draw();
   for (const b of playerBullets) b.draw();
   for (const e of enemies)       e.draw();
   player.draw();
   drawParticles();
   drawHUD();
-
   if (state === 'dead')     drawGameOver();
   if (state === 'gameover') drawGameOver();
 }
 
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
+function loop() { update(); draw(); requestAnimationFrame(loop); }
 
 window.addEventListener('keydown', e => {
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyF'].includes(e.code)) {
-    e.preventDefault();
-  }
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyF'].includes(e.code)) e.preventDefault();
 });
 
 loop();
