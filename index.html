@@ -41,7 +41,6 @@
     user-select: none;
   }
   #fsBtn:hover { background: rgba(0,60,120,0.75); color: #fff; }
-  #yt-wrap { position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -49,9 +48,7 @@
   <canvas id="game"></canvas>
   <button id="fsBtn" title="Toggle fullscreen (F)">&#x26F6; F</button>
 </div>
-<!-- Hidden YouTube player for background music -->
-<div id="yt-wrap"><div id="yt-player"></div></div>
-<script src="https://www.youtube.com/iframe_api"></script>
+<audio id="bgm" src="music.mp3" loop preload="auto" style="display:none"></audio>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -79,47 +76,12 @@ let frame = 0;
 let deathTimer = 0;
 let gameOverSoundPlayed = false;
 
-// ─── YouTube background music ─────────────────────────────────────────────────
-let ytPlayer = null;
-let ytReady = false;
-let ytStartPending = false;
-const YT_VOLUME = 22; // 0–100, soft so SFX cut through
+// ─── Background music ─────────────────────────────────────────────────────────
+const bgm = document.getElementById('bgm');
+bgm.volume = 0.22;
 
-window.onYouTubeIframeAPIReady = function () {
-  ytPlayer = new YT.Player('yt-player', {
-    videoId: 'i-_1Os7hVDw',
-    playerVars: {
-      autoplay: 0,
-      loop: 1,
-      playlist: 'i-_1Os7hVDw', // required for loop to work
-      controls: 0,
-      disablekb: 1,
-      fs: 0,
-      modestbranding: 1,
-      iv_load_policy: 3
-    },
-    events: {
-      onReady(e) {
-        ytReady = true;
-        e.target.setVolume(YT_VOLUME);
-        if (ytStartPending) { e.target.playVideo(); ytStartPending = false; }
-      }
-    }
-  });
-};
-
-function ytPlay() {
-  if (ytReady && ytPlayer) {
-    ytPlayer.setVolume(YT_VOLUME);
-    ytPlayer.playVideo();
-  } else {
-    ytStartPending = true; // play as soon as player is ready
-  }
-}
-
-function ytPause() {
-  if (ytReady && ytPlayer) ytPlayer.pauseVideo();
-}
+function ytPlay()  { bgm.play().catch(() => {}); }
+function ytPause() { bgm.pause(); }
 
 // ─── Web Audio (SFX only) ─────────────────────────────────────────────────────
 let audioCtx = null;
@@ -137,7 +99,7 @@ function sfxShoot() {
   osc.type = 'square';
   osc.frequency.setValueAtTime(900, t);
   osc.frequency.exponentialRampToValueAtTime(400, t + 0.07);
-  gain.gain.setValueAtTime(0.06, t);
+  gain.gain.setValueAtTime(0.051, t);
   gain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
   osc.start(t); osc.stop(t + 0.07);
 }
@@ -150,7 +112,7 @@ function sfxEnemyHit() {
   const src = ac.createBufferSource(); src.buffer = buf;
   const filt = ac.createBiquadFilter(); filt.type = 'bandpass'; filt.frequency.value = 1200;
   const gain = ac.createGain();
-  gain.gain.setValueAtTime(0.12, t); gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  gain.gain.setValueAtTime(0.102, t); gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
   src.connect(filt); filt.connect(gain); gain.connect(ac.destination);
   src.start(t);
 }
@@ -164,7 +126,7 @@ function sfxEnemyExplode() {
   const filt = ac.createBiquadFilter(); filt.type = 'lowpass';
   filt.frequency.setValueAtTime(1000, t); filt.frequency.exponentialRampToValueAtTime(80, t + dur);
   const gain = ac.createGain();
-  gain.gain.setValueAtTime(0.28, t); gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  gain.gain.setValueAtTime(0.238, t); gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
   src.connect(filt); filt.connect(gain); gain.connect(ac.destination);
   src.start(t);
 }
@@ -175,7 +137,7 @@ function sfxPlayerHit() {
   osc.connect(og); og.connect(ac.destination);
   osc.type = 'sawtooth';
   osc.frequency.setValueAtTime(400, t); osc.frequency.exponentialRampToValueAtTime(60, t + 0.45);
-  og.gain.setValueAtTime(0.18, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+  og.gain.setValueAtTime(0.153, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
   osc.start(t); osc.stop(t + 0.45);
   const dur = 0.25;
   const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
@@ -183,7 +145,7 @@ function sfxPlayerHit() {
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   const src = ac.createBufferSource(); src.buffer = buf;
   const ng = ac.createGain();
-  ng.gain.setValueAtTime(0.2, t); ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  ng.gain.setValueAtTime(0.17, t); ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
   src.connect(ng); ng.connect(ac.destination); src.start(t);
 }
 
@@ -195,7 +157,7 @@ function sfxGameOver() {
     osc.type = 'sawtooth';
     const st = t + i * 0.22;
     osc.frequency.setValueAtTime(freq, st);
-    gain.gain.setValueAtTime(0.16, st); gain.gain.exponentialRampToValueAtTime(0.001, st + 0.2);
+    gain.gain.setValueAtTime(0.136, st); gain.gain.exponentialRampToValueAtTime(0.001, st + 0.2);
     osc.start(st); osc.stop(st + 0.2);
   });
 }
